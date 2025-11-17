@@ -1,42 +1,5 @@
-import { useState } from "react";
-
-const ACTIVITY_OPTIONS = [
-  {
-    id: "act-1",
-    name: "City Walking Tour",
-    type: "sightseeing",
-    energyLevel: "low",
-    description: "Guided walking tour covering major landmarks and history.",
-  },
-  {
-    id: "act-2",
-    name: "Food & Night Market",
-    type: "food",
-    energyLevel: "medium",
-    description: "Evening visit to a busy night market with street food.",
-  },
-  {
-    id: "act-3",
-    name: "Museum & Art Day",
-    type: "culture",
-    energyLevel: "low",
-    description: "Visit museums, galleries, and cultural sites.",
-  },
-  {
-    id: "act-4",
-    name: "Hiking / Nature Trail",
-    type: "outdoor",
-    energyLevel: "high",
-    description: "Half-day or full-day hike with scenic views.",
-  },
-  {
-    id: "act-5",
-    name: "Boat or Cruise Tour",
-    type: "relax",
-    energyLevel: "medium",
-    description: "Relaxed boat ride or short cruise to see the city from the water.",
-  },
-];
+import { useState, useEffect } from "react";
+import api from "../services/api";
 
 export default function ActivitySwipeScreen({
   tripDetails,
@@ -47,8 +10,35 @@ export default function ActivitySwipeScreen({
   const [liked, setLiked] = useState([]);
   const [disliked, setDisliked] = useState([]);
   const [finished, setFinished] = useState(false);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const items = ACTIVITY_OPTIONS;
+  // Fetch activities from API when component mounts
+  useEffect(() => {
+    async function fetchActivities() {
+      if (!tripDetails?.destination) {
+        setError("No destination provided");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        const activities = await api.getActivities(tripDetails.destination, { limit: 10 });
+        setItems(activities);
+      } catch (err) {
+        console.error("Failed to fetch activities:", err);
+        setError(err.message || "Failed to load activities");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchActivities();
+  }, [tripDetails]);
+
   const current = items[index];
 
   const handleSwipe = (direction) => {
@@ -68,6 +58,108 @@ export default function ActivitySwipeScreen({
       setIndex(nextIndex);
     }
   };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          width: "100vw",
+          background:
+            "linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f4c75 100%)",
+          color: "white",
+          fontFamily: "Helvetica, Arial, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>🎯</div>
+          <p style={{ fontSize: "18px", marginBottom: "8px" }}>Loading activities...</p>
+          <p style={{ fontSize: "14px", color: "#d0d0d0" }}>Finding the best attractions in {tripDetails?.destination}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          width: "100vw",
+          background:
+            "linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f4c75 100%)",
+          color: "white",
+          fontFamily: "Helvetica, Arial, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center", maxWidth: "400px", padding: "20px" }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>⚠️</div>
+          <p style={{ fontSize: "18px", marginBottom: "8px", color: "#ffb3b3" }}>Failed to load activities</p>
+          <p style={{ fontSize: "14px", color: "#d0d0d0", marginBottom: "20px" }}>{error}</p>
+          <button
+            onClick={onBack}
+            style={{
+              backgroundColor: "#3282b8",
+              color: "white",
+              border: "none",
+              padding: "10px 20px",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            ⬅ Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // No results
+  if (!items || items.length === 0) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          width: "100vw",
+          background:
+            "linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f4c75 100%)",
+          color: "white",
+          fontFamily: "Helvetica, Arial, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "18px" }}>No activity options available.</p>
+          <button
+            onClick={onBack}
+            style={{
+              marginTop: "20px",
+              backgroundColor: "#3282b8",
+              color: "white",
+              border: "none",
+              padding: "10px 20px",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            ⬅ Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

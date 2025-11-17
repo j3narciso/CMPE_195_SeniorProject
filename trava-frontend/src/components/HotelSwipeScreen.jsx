@@ -1,105 +1,38 @@
-import { useState, useMemo } from "react";
-
-const HOTEL_OPTIONS_BY_CITY = {
-  "Tokyo, Japan": [
-    {
-      id: "tokyo-1",
-      name: "Hotel Sakura Shinjuku",
-      pricePerNight: 180,
-      priceLevel: "mid",
-      rating: 4.6,
-      description: "Modern hotel near Shinjuku Station, great for first-time visitors.",
-    },
-    {
-      id: "tokyo-2",
-      name: "Shibuya Budget Inn",
-      pricePerNight: 75,
-      priceLevel: "budget",
-      rating: 4.1,
-      description: "Simple, clean rooms a short walk from Shibuya Crossing.",
-    },
-    {
-      id: "tokyo-3",
-      name: "Tokyo Bay Onsen Resort",
-      pricePerNight: 260,
-      priceLevel: "luxury",
-      rating: 4.8,
-      description: "Relaxing onsen resort with ocean views and breakfast included.",
-    },
-    {
-      id: "tokyo-4",
-      name: "Capsule Stay Akihabara",
-      pricePerNight: 40,
-      priceLevel: "budget",
-      rating: 4.0,
-      description: "Futuristic capsule hotel in the heart of Akihabara.",
-    },
-    {
-      id: "tokyo-5",
-      name: "Ginza Boutique Hotel",
-      pricePerNight: 210,
-      priceLevel: "mid",
-      rating: 4.7,
-      description: "Stylish boutique stay surrounded by upscale shopping.",
-    },
-  ],
-  // Fallback options for any other city
-  default: [
-    {
-      id: "hotel-1",
-      name: "Central City Hotel",
-      pricePerNight: 150,
-      priceLevel: "mid",
-      rating: 4.5,
-      description: "Comfortable stay close to major attractions.",
-    },
-    {
-      id: "hotel-2",
-      name: "Budget Backpacker Hostel",
-      pricePerNight: 45,
-      priceLevel: "budget",
-      rating: 4.0,
-      description: "Great for solo travelers and students.",
-    },
-    {
-      id: "hotel-3",
-      name: "Riverside Resort & Spa",
-      pricePerNight: 230,
-      priceLevel: "luxury",
-      rating: 4.7,
-      description: "Resort-style property with pool and spa.",
-    },
-    {
-      id: "hotel-4",
-      name: "Old Town Guesthouse",
-      pricePerNight: 90,
-      priceLevel: "mid",
-      rating: 4.3,
-      description: "Cozy guesthouse with local charm.",
-    },
-    {
-      id: "hotel-5",
-      name: "Airport Express Hotel",
-      pricePerNight: 110,
-      priceLevel: "mid",
-      rating: 4.1,
-      description: "Convenient for late arrivals and early flights.",
-    },
-  ],
-};
+import { useState, useEffect } from "react";
+import api from "../services/api";
 
 export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
   const [index, setIndex] = useState(0);
   const [liked, setLiked] = useState([]);
   const [disliked, setDisliked] = useState([]);
   const [finished, setFinished] = useState(false);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const items = useMemo(() => {
-    if (!tripDetails) return HOTEL_OPTIONS_BY_CITY.default;
-    return (
-      HOTEL_OPTIONS_BY_CITY[tripDetails.destination] ||
-      HOTEL_OPTIONS_BY_CITY.default
-    );
+  // Fetch hotels from API when component mounts
+  useEffect(() => {
+    async function fetchHotels() {
+      if (!tripDetails?.destination) {
+        setError("No destination provided");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        const hotels = await api.getHotels(tripDetails.destination, { limit: 10 });
+        setItems(hotels);
+      } catch (err) {
+        console.error("Failed to fetch hotels:", err);
+        setError(err.message || "Failed to load hotels");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchHotels();
   }, [tripDetails]);
 
   const current = items[index];
@@ -124,6 +57,71 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
     }
   };
 
+  // Loading state
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          width: "100vw",
+          background:
+            "linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f4c75 100%)",
+          color: "white",
+          fontFamily: "Helvetica, Arial, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>🏨</div>
+          <p style={{ fontSize: "18px", marginBottom: "8px" }}>Loading hotels...</p>
+          <p style={{ fontSize: "14px", color: "#d0d0d0" }}>Finding the best options for {tripDetails?.destination}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          width: "100vw",
+          background:
+            "linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f4c75 100%)",
+          color: "white",
+          fontFamily: "Helvetica, Arial, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center", maxWidth: "400px", padding: "20px" }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>⚠️</div>
+          <p style={{ fontSize: "18px", marginBottom: "8px", color: "#ffb3b3" }}>Failed to load hotels</p>
+          <p style={{ fontSize: "14px", color: "#d0d0d0", marginBottom: "20px" }}>{error}</p>
+          <button
+            onClick={onBack}
+            style={{
+              backgroundColor: "#3282b8",
+              color: "white",
+              border: "none",
+              padding: "10px 20px",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            ⬅ Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // No results state
   if (!items || items.length === 0) {
     return (
       <div
@@ -139,7 +137,24 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
           fontFamily: "Helvetica, Arial, sans-serif",
         }}
       >
-        <p>No hotel options available.</p>
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "18px" }}>No hotel options available.</p>
+          <button
+            onClick={onBack}
+            style={{
+              marginTop: "20px",
+              backgroundColor: "#3282b8",
+              color: "white",
+              border: "none",
+              padding: "10px 20px",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            ⬅ Go Back
+          </button>
+        </div>
       </div>
     );
   }

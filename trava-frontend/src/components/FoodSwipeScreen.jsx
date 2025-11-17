@@ -1,50 +1,40 @@
-import { useState } from "react";
-
-const FOOD_OPTIONS = [
-  {
-    id: "food-1",
-    name: "Street Tacos",
-    type: "street-food",
-    priceLevel: "budget",
-    description: "Casual tacos from local street vendors, perfect for quick bites.",
-  },
-  {
-    id: "food-2",
-    name: "Fine Dining Tasting Menu",
-    type: "fine-dining",
-    priceLevel: "luxury",
-    description: "Multi-course chef tasting menu with wine pairing.",
-  },
-  {
-    id: "food-3",
-    name: "Local Family Restaurant",
-    type: "casual",
-    priceLevel: "mid",
-    description: "Home-style dishes in a relaxed setting, popular with locals.",
-  },
-  {
-    id: "food-4",
-    name: "Vegan Cafe",
-    type: "vegan",
-    priceLevel: "mid",
-    description: "Plant-based menu with coffee and light meals.",
-  },
-  {
-    id: "food-5",
-    name: "Food Market Tour",
-    type: "experience",
-    priceLevel: "mid",
-    description: "Guided visit to a local market with tastings.",
-  },
-];
+import { useState, useEffect } from "react";
+import api from "../services/api";
 
 export default function FoodSwipeScreen({ tripDetails, onBack, onComplete }) {
   const [index, setIndex] = useState(0);
   const [liked, setLiked] = useState([]);
   const [disliked, setDisliked] = useState([]);
   const [finished, setFinished] = useState(false);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const items = FOOD_OPTIONS;
+  // Fetch restaurants from API when component mounts
+  useEffect(() => {
+    async function fetchRestaurants() {
+      if (!tripDetails?.destination) {
+        setError("No destination provided");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        const restaurants = await api.getRestaurants(tripDetails.destination, { limit: 10 });
+        setItems(restaurants);
+      } catch (err) {
+        console.error("Failed to fetch restaurants:", err);
+        setError(err.message || "Failed to load restaurants");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchRestaurants();
+  }, [tripDetails]);
+
   const current = items[index];
 
   const handleSwipe = (direction) => {
@@ -64,6 +54,108 @@ export default function FoodSwipeScreen({ tripDetails, onBack, onComplete }) {
       setIndex(nextIndex);
     }
   };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          width: "100vw",
+          background:
+            "linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f4c75 100%)",
+          color: "white",
+          fontFamily: "Helvetica, Arial, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>🍽️</div>
+          <p style={{ fontSize: "18px", marginBottom: "8px" }}>Loading restaurants...</p>
+          <p style={{ fontSize: "14px", color: "#d0d0d0" }}>Finding the best dining options in {tripDetails?.destination}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          width: "100vw",
+          background:
+            "linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f4c75 100%)",
+          color: "white",
+          fontFamily: "Helvetica, Arial, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center", maxWidth: "400px", padding: "20px" }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>⚠️</div>
+          <p style={{ fontSize: "18px", marginBottom: "8px", color: "#ffb3b3" }}>Failed to load restaurants</p>
+          <p style={{ fontSize: "14px", color: "#d0d0d0", marginBottom: "20px" }}>{error}</p>
+          <button
+            onClick={onBack}
+            style={{
+              backgroundColor: "#3282b8",
+              color: "white",
+              border: "none",
+              padding: "10px 20px",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            ⬅ Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // No results
+  if (!items || items.length === 0) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          width: "100vw",
+          background:
+            "linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f4c75 100%)",
+          color: "white",
+          fontFamily: "Helvetica, Arial, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "18px" }}>No restaurant options available.</p>
+          <button
+            onClick={onBack}
+            style={{
+              marginTop: "20px",
+              backgroundColor: "#3282b8",
+              color: "white",
+              border: "none",
+              padding: "10px 20px",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            ⬅ Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
