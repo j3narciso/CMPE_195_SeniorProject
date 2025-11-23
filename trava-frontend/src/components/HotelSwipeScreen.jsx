@@ -1,106 +1,54 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 
-const HOTEL_OPTIONS_BY_CITY = {
-  "Tokyo, Japan": [
-    {
-      id: "tokyo-1",
-      name: "Hotel Sakura Shinjuku",
-      pricePerNight: 180,
-      priceLevel: "mid",
-      rating: 4.6,
-      description: "Modern hotel near Shinjuku Station, great for first-time visitors.",
-    },
-    {
-      id: "tokyo-2",
-      name: "Shibuya Budget Inn",
-      pricePerNight: 75,
-      priceLevel: "budget",
-      rating: 4.1,
-      description: "Simple, clean rooms a short walk from Shibuya Crossing.",
-    },
-    {
-      id: "tokyo-3",
-      name: "Tokyo Bay Onsen Resort",
-      pricePerNight: 260,
-      priceLevel: "luxury",
-      rating: 4.8,
-      description: "Relaxing onsen resort with ocean views and breakfast included.",
-    },
-    {
-      id: "tokyo-4",
-      name: "Capsule Stay Akihabara",
-      pricePerNight: 40,
-      priceLevel: "budget",
-      rating: 4.0,
-      description: "Futuristic capsule hotel in the heart of Akihabara.",
-    },
-    {
-      id: "tokyo-5",
-      name: "Ginza Boutique Hotel",
-      pricePerNight: 210,
-      priceLevel: "mid",
-      rating: 4.7,
-      description: "Stylish boutique stay surrounded by upscale shopping.",
-    },
-  ],
-  // Fallback options for any other city
-  default: [
-    {
-      id: "hotel-1",
-      name: "Central City Hotel",
-      pricePerNight: 150,
-      priceLevel: "mid",
-      rating: 4.5,
-      description: "Comfortable stay close to major attractions.",
-    },
-    {
-      id: "hotel-2",
-      name: "Budget Backpacker Hostel",
-      pricePerNight: 45,
-      priceLevel: "budget",
-      rating: 4.0,
-      description: "Great for solo travelers and students.",
-    },
-    {
-      id: "hotel-3",
-      name: "Riverside Resort & Spa",
-      pricePerNight: 230,
-      priceLevel: "luxury",
-      rating: 4.7,
-      description: "Resort-style property with pool and spa.",
-    },
-    {
-      id: "hotel-4",
-      name: "Old Town Guesthouse",
-      pricePerNight: 90,
-      priceLevel: "mid",
-      rating: 4.3,
-      description: "Cozy guesthouse with local charm.",
-    },
-    {
-      id: "hotel-5",
-      name: "Airport Express Hotel",
-      pricePerNight: 110,
-      priceLevel: "mid",
-      rating: 4.1,
-      description: "Convenient for late arrivals and early flights.",
-    },
-  ],
-};
+const API_BASE_URL = "http://localhost:8000/api/v1";
 
 export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
   const [index, setIndex] = useState(0);
   const [liked, setLiked] = useState([]);
   const [disliked, setDisliked] = useState([]);
   const [finished, setFinished] = useState(false);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const items = useMemo(() => {
-    if (!tripDetails) return HOTEL_OPTIONS_BY_CITY.default;
-    return (
-      HOTEL_OPTIONS_BY_CITY[tripDetails.destination] ||
-      HOTEL_OPTIONS_BY_CITY.default
-    );
-  }, [tripDetails]);
+  // Fetch real accommodation recommendations from backend
+  useEffect(() => {
+    const fetchHotels = async () => {
+      try {
+        setLoading(true);
+        // Fetch sightseeing as proxy for accommodations (backend doesn't have hotel category yet)
+        const response = await fetch(`${API_BASE_URL}/recommendations?destination=${tripDetails.destination}&category=sightseeing&limit=10`);
+        
+        if (!response.ok) throw new Error("Failed to fetch accommodations");
+        
+        const data = await response.json();
+        
+        // Transform backend recommendations to match hotel UI format
+        const transformedItems = data.recommendations.map((rec) => ({
+          id: rec.id,
+          name: rec.name,
+          pricePerNight: (rec.price_range || 2) * 50, // Estimate price per night
+          priceLevel: rec.price_range <= 1 ? "budget" : rec.price_range <= 2 ? "mid" : "luxury",
+          rating: rec.rating,
+          description: rec.description,
+          price_range: rec.price_range,
+        }));
+        
+        setItems(transformedItems);
+        setError(null);
+      } catch (err) {
+        console.error("Error fetching accommodations:", err);
+        setError(err.message);
+        setItems([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (tripDetails?.destination) {
+      fetchHotels();
+    }
+  }, [tripDetails?.destination]);
 
   const current = items[index];
 
@@ -124,7 +72,7 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
     }
   };
 
-  if (!items || items.length === 0) {
+  if (!loading && (!items || items.length === 0)) {
     return (
       <div
         style={{
@@ -139,7 +87,7 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
           fontFamily: "Helvetica, Arial, sans-serif",
         }}
       >
-        <p>No hotel options available.</p>
+        <p>{error ? `Error: ${error}` : "No accommodations available."}</p>
       </div>
     );
   }
@@ -181,7 +129,23 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
           your favorites to shape your itinerary.
         </p>
 
-        {!finished && current && (
+        {loading && (
+          <div
+            style={{
+              backgroundColor: "#0f1b2b",
+              borderRadius: "12px",
+              padding: "20px 24px",
+              marginBottom: "20px",
+              textAlign: "center",
+              fontSize: "14px",
+              color: "#d0d0d0",
+            }}
+          >
+            Loading accommodations in {tripDetails?.destination}...
+          </div>
+        )}
+
+        {!finished && !loading && current && (
           <div
             style={{
               backgroundColor: "#0f1b2b",
@@ -201,12 +165,12 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
               {current.description}
             </p>
             <p style={{ margin: 0, fontSize: "14px" }}>
-              Price per night:{" "}
+              Estimated price per night:{" "}
               <strong>${current.pricePerNight.toFixed(0)}</strong> ·{" "}
               <span style={{ textTransform: "capitalize" }}>
                 {current.priceLevel}
               </span>{" "}
-              · ⭐ {current.rating}
+              · ⭐ {current.rating?.toFixed(1)}
             </p>
             <p style={{ margin: "6px 0 0 0", fontSize: "12px", color: "#aaaaaa" }}>
               Option {index + 1} of {items.length}
@@ -244,15 +208,15 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
         >
           <button
             onClick={() => handleSwipe("dislike")}
-            disabled={finished}
+            disabled={finished || loading || items.length === 0}
             style={{
               flex: 1,
-              backgroundColor: finished ? "#555" : "#c0392b",
+              backgroundColor: finished || loading || items.length === 0 ? "#555" : "#c0392b",
               color: "white",
               border: "none",
               padding: "10px 0",
               borderRadius: "6px",
-              cursor: finished ? "not-allowed" : "pointer",
+              cursor: finished || loading || items.length === 0 ? "not-allowed" : "pointer",
               fontSize: "14px",
               fontWeight: "bold",
             }}
@@ -261,15 +225,15 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
           </button>
           <button
             onClick={() => handleSwipe("like")}
-            disabled={finished}
+            disabled={finished || loading || items.length === 0}
             style={{
               flex: 1,
-              backgroundColor: finished ? "#555" : "#27ae60",
+              backgroundColor: finished || loading || items.length === 0 ? "#555" : "#27ae60",
               color: "white",
               border: "none",
               padding: "10px 0",
               borderRadius: "6px",
-              cursor: finished ? "not-allowed" : "pointer",
+              cursor: finished || loading || items.length === 0 ? "not-allowed" : "pointer",
               fontSize: "14px",
               fontWeight: "bold",
             }}

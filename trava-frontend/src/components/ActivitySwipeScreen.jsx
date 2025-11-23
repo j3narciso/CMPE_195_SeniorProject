@@ -1,42 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-const ACTIVITY_OPTIONS = [
-  {
-    id: "act-1",
-    name: "City Walking Tour",
-    type: "sightseeing",
-    energyLevel: "low",
-    description: "Guided walking tour covering major landmarks and history.",
-  },
-  {
-    id: "act-2",
-    name: "Food & Night Market",
-    type: "food",
-    energyLevel: "medium",
-    description: "Evening visit to a busy night market with street food.",
-  },
-  {
-    id: "act-3",
-    name: "Museum & Art Day",
-    type: "culture",
-    energyLevel: "low",
-    description: "Visit museums, galleries, and cultural sites.",
-  },
-  {
-    id: "act-4",
-    name: "Hiking / Nature Trail",
-    type: "outdoor",
-    energyLevel: "high",
-    description: "Half-day or full-day hike with scenic views.",
-  },
-  {
-    id: "act-5",
-    name: "Boat or Cruise Tour",
-    type: "relax",
-    energyLevel: "medium",
-    description: "Relaxed boat ride or short cruise to see the city from the water.",
-  },
-];
+const API_BASE_URL = "http://localhost:8000/api/v1";
 
 export default function ActivitySwipeScreen({
   tripDetails,
@@ -47,8 +11,49 @@ export default function ActivitySwipeScreen({
   const [liked, setLiked] = useState([]);
   const [disliked, setDisliked] = useState([]);
   const [finished, setFinished] = useState(false);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const items = ACTIVITY_OPTIONS;
+  // Fetch real recommendations from backend
+  useEffect(() => {
+    const fetchActivities = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`${API_BASE_URL}/recommendations?destination=${tripDetails.destination}&category=activities&limit=10`);
+        
+        if (!response.ok) throw new Error("Failed to fetch activities");
+        
+        const data = await response.json();
+        
+        // Transform backend recommendations to match UI format
+        const transformedItems = data.recommendations.map((rec) => ({
+          id: rec.id,
+          name: rec.name,
+          type: rec.category,
+          energyLevel: rec.tags.includes("adventure") ? "high" : rec.tags.includes("relax") ? "low" : "medium",
+          description: rec.description,
+          rating: rec.rating,
+          price_range: rec.price_range,
+          location: rec.location,
+        }));
+        
+        setItems(transformedItems);
+        setError(null);
+      } catch (err) {
+        console.error("Error fetching activities:", err);
+        setError(err.message);
+        setItems([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (tripDetails?.destination) {
+      fetchActivities();
+    }
+  }, [tripDetails?.destination]);
+
   const current = items[index];
 
   const handleSwipe = (direction) => {
@@ -105,7 +110,39 @@ export default function ActivitySwipeScreen({
           Swipe right on activities you&apos;d enjoy doing on this trip.
         </p>
 
-        {!finished && current && (
+        {loading && (
+          <div
+            style={{
+              backgroundColor: "#0f1b2b",
+              borderRadius: "12px",
+              padding: "20px 24px",
+              marginBottom: "20px",
+              textAlign: "center",
+              fontSize: "14px",
+              color: "#d0d0d0",
+            }}
+          >
+            Loading activities for {tripDetails?.destination}...
+          </div>
+        )}
+
+        {error && (
+          <div
+            style={{
+              backgroundColor: "#3a2d2d",
+              borderRadius: "12px",
+              padding: "20px 24px",
+              marginBottom: "20px",
+              fontSize: "14px",
+              color: "#ff6b6b",
+              border: "1px solid #c0392b",
+            }}
+          >
+            Error loading activities: {error}
+          </div>
+        )}
+
+        {!finished && !loading && current && (
           <div
             style={{
               backgroundColor: "#0f1b2b",
@@ -124,6 +161,9 @@ export default function ActivitySwipeScreen({
             >
               {current.description}
             </p>
+            <div style={{ fontSize: "13px", color: "#aaa", marginBottom: "8px" }}>
+              ⭐ Rating: {current.rating?.toFixed(1) || "N/A"} · 💰 Price: {"$".repeat(current.price_range || 2)}
+            </div>
             <p style={{ margin: 0, fontSize: "14px" }}>
               Type:{" "}
               <span style={{ textTransform: "capitalize" }}>{current.type}</span>{" "}
@@ -167,15 +207,15 @@ export default function ActivitySwipeScreen({
         >
           <button
             onClick={() => handleSwipe("dislike")}
-            disabled={finished}
+            disabled={finished || loading || items.length === 0}
             style={{
               flex: 1,
-              backgroundColor: finished ? "#555" : "#c0392b",
+              backgroundColor: finished || loading || items.length === 0 ? "#555" : "#c0392b",
               color: "white",
               border: "none",
               padding: "10px 0",
               borderRadius: "6px",
-              cursor: finished ? "not-allowed" : "pointer",
+              cursor: finished || loading || items.length === 0 ? "not-allowed" : "pointer",
               fontSize: "14px",
               fontWeight: "bold",
             }}
@@ -184,15 +224,15 @@ export default function ActivitySwipeScreen({
           </button>
           <button
             onClick={() => handleSwipe("like")}
-            disabled={finished}
+            disabled={finished || loading || items.length === 0}
             style={{
               flex: 1,
-              backgroundColor: finished ? "#555" : "#27ae60",
+              backgroundColor: finished || loading || items.length === 0 ? "#555" : "#27ae60",
               color: "white",
               border: "none",
               padding: "10px 0",
               borderRadius: "6px",
-              cursor: finished ? "not-allowed" : "pointer",
+              cursor: finished || loading || items.length === 0 ? "not-allowed" : "pointer",
               fontSize: "14px",
               fontWeight: "bold",
             }}

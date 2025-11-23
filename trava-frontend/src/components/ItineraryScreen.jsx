@@ -32,7 +32,7 @@
  * - itineraryUpdates: Feed of changes to the itinerary
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   MapPin,
   Hotel,
@@ -44,8 +44,32 @@ import {
   Send,
   Check,
   Download,
+  AlertCircle,
+  Loader,
+  Sparkles,
+  Calendar,
+  Users,
 } from "lucide-react";
+import { generateItinerary, mapSelectionsToPreferences, createTripRequest } from "../services/api";
 
+const MODERN_STYLES = `
+  @keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes slideInRight {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+`;
 export default function ItineraryScreen({
   tripDetails,
   likedHotels,
@@ -53,6 +77,9 @@ export default function ItineraryScreen({
   likedActivities,
   onBack,
 }) {
+  const [itinerary, setItinerary] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [messages, setMessages] = useState([
     {
       id: 1,
@@ -62,17 +89,120 @@ export default function ItineraryScreen({
     },
   ]);
   const [inputMessage, setInputMessage] = useState("");
-  const [itineraryUpdates, setItineraryUpdates] = useState([
-    {
-      id: 1,
-      type: "info",
-      text: "Itinerary initialized with your preferences",
-      timestamp: new Date(),
-    },
-  ]);
+  const [itineraryUpdates, setItineraryUpdates] = useState([]);
+
+  // Fetch itinerary on component mount (only once per trip)
+  useEffect(() => {
+    // If itinerary already loaded, don't fetch again
+    if (itinerary) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchItinerary = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Map frontend selections to backend preferences
+        const preferences = mapSelectionsToPreferences({
+          likedHotels,
+          likedFood,
+          likedActivities,
+        });
+
+        // Create trip request
+        const tripRequest = createTripRequest(tripDetails, preferences);
+
+        // Call backend API
+        const result = await generateItinerary(tripRequest);
+
+        if (result.error) {
+          setError(result.error || "Failed to generate itinerary");
+          setItineraryUpdates([
+            {
+              id: 1,
+              type: "error",
+              text: `Error: ${result.detail || result.error}`,
+              timestamp: new Date(),
+            },
+          ]);
+        } else {
+          setItinerary(result);
+          setItineraryUpdates([
+            {
+              id: 1,
+              type: "info",
+              text: `✓ Itinerary generated: ${result.total_recommendations} recommendations across ${result.days.length} days`,
+              timestamp: new Date(),
+            },
+            ...result.warnings.map((warning, idx) => ({
+              id: idx + 2,
+              type: "warning",
+              text: `⚠️ ${warning}`,
+              timestamp: new Date(),
+            })),
+          ]);
+        }
+      } catch (err) {
+        setError(err.message || "Failed to fetch itinerary");
+        setItineraryUpdates([
+          {
+            id: 1,
+            type: "error",
+            text: `Error: ${err.message}`,
+            timestamp: new Date(),
+          },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (tripDetails && !itinerary) {
+      fetchItinerary();
+    }
+  }, []);
 
   if (!tripDetails) {
     return <div>Missing trip details.</div>;
+  }
+
+  if (loading && !itinerary) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          width: "100vw",
+          background: "linear-gradient(135deg, #0f172a 0%, #1e3a8a 25%, #1e40af 50%, #0c4a6e 75%, #082f49 100%)",
+          color: "white",
+          overflow: "hidden",
+        }}
+      >
+        <style>{MODERN_STYLES}</style>
+        <div style={{ textAlign: "center", position: "relative", zIndex: 10 }}>
+          <div
+            style={{
+              background: "linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)",
+              padding: "20px",
+              borderRadius: "16px",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: "24px",
+              boxShadow: "0 20px 40px rgba(59, 130, 246, 0.3)",
+            }}
+          >
+            <Loader size={48} style={{ animation: "spin 1s linear infinite" }} />
+          </div>
+          <h2 style={{ fontSize: "24px", fontWeight: "700", marginBottom: "8px" }}>Generating Itinerary</h2>
+          <p style={{ fontSize: "15px", color: "#cbd5e1" }}>Crafting your perfect journey...</p>
+        </div>
+      </div>
+    );
   }
 
   const { destination, startDate, endDate, guests } = tripDetails;
@@ -80,8 +210,8 @@ export default function ItineraryScreen({
   const formatDate = (d) =>
     d instanceof Date ? d.toLocaleDateString() : String(d);
 
-  const handleSendMessage = () => {
-    if (!inputMessage.trim()) return;
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || !itinerary) return;
 
     // Add user message
     const userMessage = {
@@ -90,26 +220,26 @@ export default function ItineraryScreen({
       text: inputMessage,
       timestamp: new Date(),
     };
-    setMessages([...messages, userMessage]);
+    setMessages((prev) => [...prev, userMessage]);
 
-    // Simulate bot response (will be replaced with actual API call)
+    // Show processing update
+    const processingUpdate = {
+      id: itineraryUpdates.length + 1,
+      type: "update",
+      text: `Processing: "${inputMessage}"`,
+      timestamp: new Date(),
+    };
+    setItineraryUpdates((prev) => [...prev, processingUpdate]);
+
+    // Simulate bot response (refinement API not yet implemented in backend)
     setTimeout(() => {
       const botMessage = {
         id: messages.length + 2,
         sender: "bot",
-        text: "I understand you want to modify your itinerary. This feature will be connected to the backend AI soon!",
+        text: "I understand your request. The refinement feature will be available soon! For now, you can export this itinerary and modify it manually.",
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, botMessage]);
-
-      // Add update to itinerary panel
-      const update = {
-        id: itineraryUpdates.length + 1,
-        type: "update",
-        text: `Processing request: "${inputMessage}"`,
-        timestamp: new Date(),
-      };
-      setItineraryUpdates((prev) => [...prev, update]);
     }, 1000);
 
     setInputMessage("");
@@ -121,111 +251,133 @@ export default function ItineraryScreen({
         display: "flex",
         height: "100vh",
         width: "100vw",
-        background:
-          "linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f4c75 100%)",
+        background: "linear-gradient(135deg, #0f172a 0%, #1e3a8a 25%, #1e40af 50%, #0c4a6e 75%, #082f49 100%)",
         color: "white",
-        fontFamily: "Helvetica, Arial, sans-serif",
+        fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
         padding: "24px",
         gap: "20px",
         boxSizing: "border-box",
+        overflow: "hidden",
       }}
     >
+      <style>{MODERN_STYLES}</style>
       {/* LEFT PANEL - Travel Summary */}
       <div
         style={{
           flex: "0 0 320px",
-          backgroundColor: "#16213e",
-          borderRadius: "16px",
-          boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-          padding: "24px",
+          backgroundColor: "rgba(30, 41, 59, 0.6)",
+          backdropFilter: "blur(10px)",
+          borderRadius: "20px",
+          boxShadow: "0 25px 50px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)",
+          border: "1px solid rgba(255, 255, 255, 0.1)",
+          padding: "28px",
           overflowY: "auto",
           display: "flex",
           flexDirection: "column",
+          animation: "slideInLeft 0.6s ease-out",
         }}
       >
-        <div style={{ marginBottom: "16px" }}>
+        <div style={{ marginBottom: "24px" }}>
           <button
             onClick={onBack}
             style={{
               backgroundColor: "transparent",
-              color: "#3282b8",
-              border: "1px solid #3282b8",
-              padding: "8px 16px",
-              borderRadius: "6px",
+              color: "#3b82f6",
+              border: "2px solid rgba(59, 130, 246, 0.3)",
+              padding: "10px 16px",
+              borderRadius: "10px",
               cursor: "pointer",
               fontSize: "13px",
-              fontWeight: "500",
-              transition: "all 0.2s",
+              fontWeight: "600",
+              transition: "all 0.3s ease",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
             }}
             onMouseOver={(e) => {
-              e.target.style.backgroundColor = "#3282b8";
-              e.target.style.color = "white";
+              e.target.style.backgroundColor = "rgba(59, 130, 246, 0.15)";
+              e.target.style.borderColor = "rgba(59, 130, 246, 0.6)";
             }}
             onMouseOut={(e) => {
               e.target.style.backgroundColor = "transparent";
-              e.target.style.color = "#3282b8";
+              e.target.style.borderColor = "rgba(59, 130, 246, 0.3)";
             }}
           >
-            <ArrowLeft size={16} style={{ marginRight: "6px" }} />
+            <ArrowLeft size={16} />
             Back
           </button>
         </div>
 
         <h2
           style={{
-            margin: "0 0 8px 0",
-            fontSize: "24px",
-            fontWeight: "600",
+            margin: "0 0 4px 0",
+            fontSize: "22px",
+            fontWeight: "700",
+            background: "linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)",
+            backgroundClip: "text",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
           }}
         >
-          Travel Summary
+          Your Journey
         </h2>
         <p
           style={{
-            margin: "0 0 20px 0",
+            margin: "0 0 24px 0",
             fontSize: "13px",
-            color: "#b0b0b0",
+            color: "#cbd5e1",
             lineHeight: "1.5",
           }}
         >
-          Your trip preferences and selections
+          Trip details & preferences
         </p>
 
         {/* Trip Details Card */}
         <div
           style={{
-            backgroundColor: "#0f1b2b",
-            borderRadius: "12px",
-            padding: "16px",
-            marginBottom: "12px",
-            border: "1px solid #1e3a5f",
+            backgroundColor: "rgba(15, 23, 42, 0.5)",
+            backdropFilter: "blur(8px)",
+            borderRadius: "14px",
+            padding: "18px",
+            marginBottom: "14px",
+            border: "1px solid rgba(59, 130, 246, 0.2)",
+            transition: "all 0.3s ease",
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.7)";
+            e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.4)";
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.5)";
+            e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.2)";
           }}
         >
           <h3
             style={{
               margin: "0 0 12px 0",
-              fontSize: "16px",
-              fontWeight: "600",
-              color: "#3282b8",
+              fontSize: "15px",
+              fontWeight: "700",
+              color: "#3b82f6",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
-            <MapPin size={16} style={{ marginRight: "8px", display: "inline" }} />
+            <MapPin size={16} />
             Trip Details
           </h3>
-          <div style={{ fontSize: "13px", lineHeight: "1.8" }}>
-            <div style={{ marginBottom: "6px" }}>
-              <span style={{ color: "#888" }}>Destination:</span>{" "}
-              <strong style={{ color: "#fff" }}>{destination}</strong>
+          <div style={{ fontSize: "13px", lineHeight: "1.9", color: "#e2e8f0" }}>
+            <div style={{ marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+              <MapPin size={14} style={{ color: "#3b82f6", flexShrink: 0 }} />
+              <span>{destination}</span>
             </div>
-            <div style={{ marginBottom: "6px" }}>
-              <span style={{ color: "#888" }}>Dates:</span>{" "}
-              <strong style={{ color: "#fff" }}>
-                {formatDate(startDate)} → {formatDate(endDate)}
-              </strong>
+            <div style={{ marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+              <Calendar size={14} style={{ color: "#3b82f6", flexShrink: 0 }} />
+              <span>{formatDate(startDate)} → {formatDate(endDate)}</span>
             </div>
-            <div>
-              <span style={{ color: "#888" }}>Guests:</span>{" "}
-              <strong style={{ color: "#fff" }}>{guests}</strong>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Users size={14} style={{ color: "#3b82f6", flexShrink: 0 }} />
+              <span>{guests} {guests === 1 ? "guest" : "guests"}</span>
             </div>
           </div>
         </div>
@@ -233,22 +385,35 @@ export default function ItineraryScreen({
         {/* Hotels Card */}
         <div
           style={{
-            backgroundColor: "#0f1b2b",
-            borderRadius: "12px",
-            padding: "16px",
-            marginBottom: "12px",
-            border: "1px solid #1e3a5f",
+            backgroundColor: "rgba(15, 23, 42, 0.5)",
+            backdropFilter: "blur(8px)",
+            borderRadius: "14px",
+            padding: "18px",
+            marginBottom: "14px",
+            border: "1px solid rgba(59, 130, 246, 0.2)",
+            transition: "all 0.3s ease",
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.7)";
+            e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.4)";
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.5)";
+            e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.2)";
           }}
         >
           <h3
             style={{
               margin: "0 0 12px 0",
-              fontSize: "16px",
-              fontWeight: "600",
-              color: "#3282b8",
+              fontSize: "15px",
+              fontWeight: "700",
+              color: "#3b82f6",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
-            <Hotel size={16} style={{ marginRight: "8px", display: "inline" }} />
+            <Hotel size={16} />
             Preferred Hotels
           </h3>
           {likedHotels.length === 0 ? (
@@ -280,22 +445,35 @@ export default function ItineraryScreen({
         {/* Food Card */}
         <div
           style={{
-            backgroundColor: "#0f1b2b",
-            borderRadius: "12px",
-            padding: "16px",
-            marginBottom: "12px",
-            border: "1px solid #1e3a5f",
+            backgroundColor: "rgba(15, 23, 42, 0.5)",
+            backdropFilter: "blur(8px)",
+            borderRadius: "14px",
+            padding: "18px",
+            marginBottom: "14px",
+            border: "1px solid rgba(59, 130, 246, 0.2)",
+            transition: "all 0.3s ease",
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.7)";
+            e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.4)";
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.5)";
+            e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.2)";
           }}
         >
           <h3
             style={{
               margin: "0 0 12px 0",
-              fontSize: "16px",
-              fontWeight: "600",
-              color: "#3282b8",
+              fontSize: "15px",
+              fontWeight: "700",
+              color: "#3b82f6",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
-            <UtensilsCrossed size={16} style={{ marginRight: "8px", display: "inline" }} />
+            <UtensilsCrossed size={16} />
             Preferred Food
           </h3>
           {likedFood.length === 0 ? (
@@ -326,21 +504,36 @@ export default function ItineraryScreen({
         {/* Activities Card */}
         <div
           style={{
-            backgroundColor: "#0f1b2b",
-            borderRadius: "12px",
-            padding: "16px",
-            border: "1px solid #1e3a5f",
+            backgroundColor: "rgba(15, 23, 42, 0.5)",
+            backdropFilter: "blur(8px)",
+            borderRadius: "14px",
+            padding: "18px",
+            marginBottom: "14px",
+            border: "1px solid rgba(59, 130, 246, 0.2)",
+            transition: "all 0.3s ease",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.7)";
+            e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.4)";
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.5)";
+            e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.2)";
           }}
         >
           <h3
             style={{
               margin: "0 0 12px 0",
-              fontSize: "16px",
-              fontWeight: "600",
-              color: "#3282b8",
+              fontSize: "15px",
+              fontWeight: "700",
+              color: "#3b82f6",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
-            <Target size={16} style={{ marginRight: "8px", display: "inline" }} />
+            <Target size={16} />
             Preferred Activities
           </h3>
           {likedActivities.length === 0 ? (
@@ -504,7 +697,7 @@ export default function ItineraryScreen({
         </div>
       </div>
 
-      {/* RIGHT PANEL - Live Itinerary Updates */}
+      {/* RIGHT PANEL - Live Itinerary Updates & Daily Summary */}
       <div
         style={{
           flex: "0 0 320px",
@@ -524,7 +717,7 @@ export default function ItineraryScreen({
           }}
         >
           <ClipboardList size={24} style={{ marginRight: "8px", display: "inline" }} />
-          Live Updates
+          Itinerary
         </h2>
         <p
           style={{
@@ -534,7 +727,7 @@ export default function ItineraryScreen({
             lineHeight: "1.5",
           }}
         >
-          Real-time changes to your itinerary
+          {itinerary ? `${itinerary.days.length} days, ${itinerary.total_recommendations} activities` : "Loading..."}
         </p>
 
         {/* Updates Container */}
@@ -546,46 +739,93 @@ export default function ItineraryScreen({
             padding: "16px",
             overflowY: "auto",
             border: "1px solid #1e3a5f",
+            marginBottom: "16px",
           }}
         >
-          {itineraryUpdates.map((update) => (
-            <div
-              key={update.id}
-              style={{
-                backgroundColor:
-                  update.type === "info" ? "#1e3a5f" : "#2d5a3f",
-                padding: "12px",
-                borderRadius: "8px",
-                marginBottom: "12px",
-                borderLeft:
-                  update.type === "info"
-                    ? "3px solid #3282b8"
-                    : "3px solid #27ae60",
-              }}
-            >
-              <div style={{ fontSize: "13px", lineHeight: "1.5" }}>
-                {update.text}
-              </div>
+          {/* Status Updates */}
+          <div style={{ marginBottom: "16px" }}>
+            {itineraryUpdates.map((update) => (
               <div
+                key={update.id}
                 style={{
-                  fontSize: "11px",
-                  color: "#888",
-                  marginTop: "6px",
+                  backgroundColor:
+                    update.type === "info"
+                      ? "#1e3a5f"
+                      : update.type === "warning"
+                      ? "#5a4a2d"
+                      : "#3a2d2d",
+                  padding: "12px",
+                  borderRadius: "8px",
+                  marginBottom: "12px",
+                  borderLeft:
+                    update.type === "info"
+                      ? "3px solid #3282b8"
+                      : update.type === "warning"
+                      ? "3px solid #f39c12"
+                      : "3px solid #e74c3c",
                 }}
               >
-                {update.timestamp.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                <div style={{ fontSize: "13px", lineHeight: "1.5" }}>
+                  {update.text}
+                </div>
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: "#888",
+                    marginTop: "6px",
+                  }}
+                >
+                  {update.timestamp.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </div>
               </div>
+            ))}
+          </div>
+
+          {/* Daily Summary */}
+          {itinerary && itinerary.days.length > 0 && (
+            <div>
+              <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", color: "#3282b8" }}>
+                📅 Daily Breakdown
+              </h4>
+              {itinerary.days.map((day, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    backgroundColor: "#1e3a5f",
+                    padding: "10px",
+                    borderRadius: "6px",
+                    marginBottom: "8px",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div style={{ color: "#3282b8", fontWeight: "600", marginBottom: "4px" }}>
+                    {day.date}
+                  </div>
+                  <div style={{ color: "#888" }}>
+                    {day.items.length} activities
+                  </div>
+                  {day.items.slice(0, 2).map((item, itemIdx) => (
+                    <div key={itemIdx} style={{ color: "#aaa", fontSize: "11px", marginTop: "4px" }}>
+                      • {item.recommendation.name}
+                    </div>
+                  ))}
+                  {day.items.length > 2 && (
+                    <div style={{ color: "#888", fontSize: "11px", marginTop: "4px" }}>
+                      +{day.items.length - 2} more...
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
 
         {/* Action Buttons */}
         <div
           style={{
-            marginTop: "16px",
             display: "flex",
             flexDirection: "column",
             gap: "8px",

@@ -1,0 +1,28 @@
+# Core Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.6.0
+pydantic-settings==2.1.0
+
+# Data & Utilities
+python-dotenv==1.0.0
+python-multipart==0.0.6
+
+# Google Maps Integration (for future)
+googlemaps==4.10.0
+
+# Caching & Performance
+redis==5.0.1
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+httpx==0.25.2
+
+# Logging & Monitoring
+python-json-logger==2.0.7
+
+# Math & Geospatial
+geopy==2.4.1
+numpy==1.26.2

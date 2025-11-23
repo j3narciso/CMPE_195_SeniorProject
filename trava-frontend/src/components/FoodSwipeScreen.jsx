@@ -1,50 +1,54 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-const FOOD_OPTIONS = [
-  {
-    id: "food-1",
-    name: "Street Tacos",
-    type: "street-food",
-    priceLevel: "budget",
-    description: "Casual tacos from local street vendors, perfect for quick bites.",
-  },
-  {
-    id: "food-2",
-    name: "Fine Dining Tasting Menu",
-    type: "fine-dining",
-    priceLevel: "luxury",
-    description: "Multi-course chef tasting menu with wine pairing.",
-  },
-  {
-    id: "food-3",
-    name: "Local Family Restaurant",
-    type: "casual",
-    priceLevel: "mid",
-    description: "Home-style dishes in a relaxed setting, popular with locals.",
-  },
-  {
-    id: "food-4",
-    name: "Vegan Cafe",
-    type: "vegan",
-    priceLevel: "mid",
-    description: "Plant-based menu with coffee and light meals.",
-  },
-  {
-    id: "food-5",
-    name: "Food Market Tour",
-    type: "experience",
-    priceLevel: "mid",
-    description: "Guided visit to a local market with tastings.",
-  },
-];
+const API_BASE_URL = "http://localhost:8000/api/v1";
 
 export default function FoodSwipeScreen({ tripDetails, onBack, onComplete }) {
   const [index, setIndex] = useState(0);
   const [liked, setLiked] = useState([]);
   const [disliked, setDisliked] = useState([]);
   const [finished, setFinished] = useState(false);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const items = FOOD_OPTIONS;
+  // Fetch real restaurant recommendations from backend
+  useEffect(() => {
+    const fetchFood = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`${API_BASE_URL}/recommendations?destination=${tripDetails.destination}&category=food&limit=10`);
+        
+        if (!response.ok) throw new Error("Failed to fetch restaurants");
+        
+        const data = await response.json();
+        
+        // Transform backend recommendations to match UI format
+        const transformedItems = data.recommendations.map((rec) => ({
+          id: rec.id,
+          name: rec.name,
+          type: rec.category,
+          priceLevel: rec.price_range <= 1 ? "budget" : rec.price_range <= 2 ? "mid" : "luxury",
+          description: rec.description,
+          rating: rec.rating,
+          price_range: rec.price_range,
+        }));
+        
+        setItems(transformedItems);
+        setError(null);
+      } catch (err) {
+        console.error("Error fetching food options:", err);
+        setError(err.message);
+        setItems([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (tripDetails?.destination) {
+      fetchFood();
+    }
+  }, [tripDetails?.destination]);
+
   const current = items[index];
 
   const handleSwipe = (direction) => {
@@ -101,7 +105,39 @@ export default function FoodSwipeScreen({ tripDetails, onBack, onComplete }) {
           Swipe right on food options you&apos;d like to try during your trip.
         </p>
 
-        {!finished && current && (
+        {loading && (
+          <div
+            style={{
+              backgroundColor: "#0f1b2b",
+              borderRadius: "12px",
+              padding: "20px 24px",
+              marginBottom: "20px",
+              textAlign: "center",
+              fontSize: "14px",
+              color: "#d0d0d0",
+            }}
+          >
+            Loading restaurants in {tripDetails?.destination}...
+          </div>
+        )}
+
+        {error && (
+          <div
+            style={{
+              backgroundColor: "#3a2d2d",
+              borderRadius: "12px",
+              padding: "20px 24px",
+              marginBottom: "20px",
+              fontSize: "14px",
+              color: "#ff6b6b",
+              border: "1px solid #c0392b",
+            }}
+          >
+            Error loading restaurants: {error}
+          </div>
+        )}
+
+        {!finished && !loading && current && (
           <div
             style={{
               backgroundColor: "#0f1b2b",
@@ -120,6 +156,9 @@ export default function FoodSwipeScreen({ tripDetails, onBack, onComplete }) {
             >
               {current.description}
             </p>
+            <div style={{ fontSize: "13px", color: "#aaa", marginBottom: "8px" }}>
+              ⭐ Rating: {current.rating?.toFixed(1) || "N/A"} · 💰 Price: {"$".repeat(current.price_range || 2)}
+            </div>
             <p style={{ margin: 0, fontSize: "14px" }}>
               Type:{" "}
               <span style={{ textTransform: "capitalize" }}>{current.type}</span>{" "}
@@ -163,15 +202,15 @@ export default function FoodSwipeScreen({ tripDetails, onBack, onComplete }) {
         >
           <button
             onClick={() => handleSwipe("dislike")}
-            disabled={finished}
+            disabled={finished || loading || items.length === 0}
             style={{
               flex: 1,
-              backgroundColor: finished ? "#555" : "#c0392b",
+              backgroundColor: finished || loading || items.length === 0 ? "#555" : "#c0392b",
               color: "white",
               border: "none",
               padding: "10px 0",
               borderRadius: "6px",
-              cursor: finished ? "not-allowed" : "pointer",
+              cursor: finished || loading || items.length === 0 ? "not-allowed" : "pointer",
               fontSize: "14px",
               fontWeight: "bold",
             }}
@@ -180,15 +219,15 @@ export default function FoodSwipeScreen({ tripDetails, onBack, onComplete }) {
           </button>
           <button
             onClick={() => handleSwipe("like")}
-            disabled={finished}
+            disabled={finished || loading || items.length === 0}
             style={{
               flex: 1,
-              backgroundColor: finished ? "#555" : "#27ae60",
+              backgroundColor: finished || loading || items.length === 0 ? "#555" : "#27ae60",
               color: "white",
               border: "none",
               padding: "10px 0",
               borderRadius: "6px",
-              cursor: finished ? "not-allowed" : "pointer",
+              cursor: finished || loading || items.length === 0 ? "not-allowed" : "pointer",
               fontSize: "14px",
               fontWeight: "bold",
             }}
