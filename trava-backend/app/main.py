@@ -6,8 +6,8 @@ import logging
 import sys
 from pythonjsonlogger import jsonlogger
 
-from app.config import settings
-from app.routers import itinerary
+from app.config import settings, redis_client
+from app.routers import itinerary, health
 
 # Configure logging
 logger = logging.getLogger()
@@ -64,6 +64,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(itinerary.router)
+app.include_router(health.router)
 
 
 # Global exception handler
@@ -87,6 +88,12 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup"""
+    # Redis healthcheck
+    try:
+        redis_client.set("healthcheck", "ok", ex=10)
+        logger.info("Redis connection OK")
+    except Exception as e:
+        logger.error(f"Redis connection FAILED: {e}")
     logger.info("Application startup complete")
     logger.info(f"CORS origins: {settings.cors_origins_list}")
     logger.info(f"Log level: {settings.log_level}")

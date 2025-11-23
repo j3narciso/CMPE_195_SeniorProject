@@ -21,18 +21,49 @@ export default function FoodSwipeScreen({ tripDetails, onBack, onComplete }) {
         if (!response.ok) throw new Error("Failed to fetch restaurants");
         
         const data = await response.json();
-        
+
+        // First, filter to keep only food/restaurant-like places and drop hotels/lodging
+        const filteredFood = (data.recommendations || []).filter((rec) => {
+          const tags = rec.tags || [];
+          const types = rec.place_types || rec.types || [];
+          const lowerName = (rec.name || "").toLowerCase();
+
+          const hasFoodSignal =
+            tags.includes("restaurant") ||
+            tags.includes("food") ||
+            types.includes("restaurant") ||
+            types.includes("food");
+
+          const looksLikeHotel =
+            lowerName.includes("hotel") ||
+            lowerName.includes("hôtel") ||
+            tags.includes("lodging") ||
+            types.includes("lodging");
+
+          // Keep it if it looks like food and not like a hotel
+          return hasFoodSignal && !looksLikeHotel;
+        });
+
+        // Optional: sort by rating (highest first) so the best options show up early
+        filteredFood.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+
         // Transform backend recommendations to match UI format
-        const transformedItems = data.recommendations.map((rec) => ({
+        const transformedItems = filteredFood.map((rec) => ({
           id: rec.id,
           name: rec.name,
           type: rec.category,
-          priceLevel: rec.price_range <= 1 ? "budget" : rec.price_range <= 2 ? "mid" : "luxury",
+          priceLevel:
+            rec.price_range <= 1
+              ? "budget"
+              : rec.price_range <= 2
+              ? "mid"
+              : "luxury",
           description: rec.description,
           rating: rec.rating,
           price_range: rec.price_range,
+          imageUrl: rec.photo_url || rec.image_url,
         }));
-        
+
         setItems(transformedItems);
         setError(null);
       } catch (err) {
@@ -146,6 +177,26 @@ export default function FoodSwipeScreen({ tripDetails, onBack, onComplete }) {
               marginBottom: "20px",
             }}
           >
+            {current.imageUrl && (
+              <div
+                style={{
+                  marginBottom: "12px",
+                  overflow: "hidden",
+                  borderRadius: "10px",
+                }}
+              >
+                <img
+                  src={current.imageUrl}
+                  alt={current.name}
+                  style={{
+                    width: "100%",
+                    maxHeight: "220px",
+                    objectFit: "cover",
+                    display: "block",
+                  }}
+                />
+              </div>
+            )}
             <h3 style={{ margin: "0 0 8px 0" }}>{current.name}</h3>
             <p
               style={{

@@ -11,6 +11,7 @@ class CategoryEnum(str, Enum):
     EVENTS = "events"
     SIGHTSEEING = "sightseeing"
     ACTIVITIES = "activities"
+    STAY = "stay"
 
 
 class PaceEnum(str, Enum):
@@ -35,6 +36,7 @@ class Recommendation(BaseModel):
     website: Optional[str] = None
     phone: Optional[str] = None
     image_url: Optional[str] = None
+    photo_url: Optional[str] = None
     google_maps_url: Optional[str] = None
     
     class Config:

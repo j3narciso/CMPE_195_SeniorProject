@@ -16,8 +16,10 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
     const fetchHotels = async () => {
       try {
         setLoading(true);
-        // Fetch sightseeing as proxy for accommodations (backend doesn't have hotel category yet)
-        const response = await fetch(`${API_BASE_URL}/recommendations?destination=${tripDetails.destination}&category=sightseeing&limit=10`);
+        // Fetch hotels as proxy for accommodations
+        const response = await fetch(
+          `${API_BASE_URL}/recommendations?destination=${tripDetails.destination}&category=stay&limit=10`
+        );
         
         if (!response.ok) throw new Error("Failed to fetch accommodations");
         
@@ -32,6 +34,7 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
           rating: rec.rating,
           description: rec.description,
           price_range: rec.price_range,
+          imageUrl: rec.photo_url || rec.image_url,
         }));
         
         setItems(transformedItems);
@@ -154,6 +157,26 @@ export default function HotelSwipeScreen({ tripDetails, onBack, onComplete }) {
               marginBottom: "20px",
             }}
           >
+            {current.imageUrl && (
+              <div
+                style={{
+                  marginBottom: "12px",
+                  overflow: "hidden",
+                  borderRadius: "10px",
+                }}
+              >
+                <img
+                  src={current.imageUrl}
+                  alt={current.name}
+                  style={{
+                    width: "100%",
+                    maxHeight: "220px",
+                    objectFit: "cover",
+                    display: "block",
+                  }}
+                />
+              </div>
+            )}
             <h3 style={{ margin: "0 0 8px 0" }}>{current.name}</h3>
             <p
               style={{

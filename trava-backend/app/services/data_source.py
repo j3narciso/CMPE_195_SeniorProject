@@ -17,7 +17,7 @@ except Exception as e:
     print(f"✗ Unexpected error importing googlemaps: {e}", flush=True)
 
 from app.models.schemas import Recommendation, CategoryEnum
-from app.config import settings
+from app.config import settings, redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -161,9 +161,16 @@ class GooglePlacesDataSource(DataSource):
             lat, lng = location['lat'], location['lng']
             
             recommendations = []
+            seen_place_ids: set[str] = set()
             
             # Search for each place type
             for place_type in place_types:
+                # Decide how many results to keep per type. For food we try to keep more
+                # so the frontend can show up to ~limit distinct options.
+                if limit is not None:
+                    per_type_limit = max(5, min(limit, 15))
+                else:
+                    per_type_limit = 10
                 try:
                     # Nearby search
                     places_result = self.client.places_nearby(
@@ -172,9 +179,17 @@ class GooglePlacesDataSource(DataSource):
                         type=place_type,
                         rank_by='prominence'
                     )
-                    
+                    logger.info(
+                        f"Google Places returned {len(places_result.get('results', []))} raw results for type={place_type} in {destination}"
+                    )
                     # Convert results to Recommendation objects
-                    for place in places_result.get('results', [])[:5]:  # Limit 5 per type
+                    for place in places_result.get('results', [])[:per_type_limit]:
+                        place_id = place.get('place_id')
+                        if not place_id:
+                            continue
+                        if place_id in seen_place_ids:
+                            continue
+                        seen_place_ids.add(place_id)
                         rec = self._convert_place_to_recommendation(
                             place, place_type
                         )
@@ -197,6 +212,74 @@ class GooglePlacesDataSource(DataSource):
         except Exception as e:
             logger.error(f"Error fetching from Google Places API: {e}")
             return []
+    def _is_place_valid_for_category(self, place: dict, category: CategoryEnum) -> bool:
+        """Apply stricter filtering so each category shows the right kind of place."""
+        types = place.get("types") or []
+        name = (place.get("name") or "").lower()
+
+        # Hotels / stays
+        if category == CategoryEnum.STAY:
+            # Must actually be lodging
+            if "lodging" not in types:
+                return False
+
+            # If it's also tagged as food, only keep if the name looks hotel-like
+            if any(t in types for t in ["restaurant", "cafe", "bar"]):
+                hotel_keywords = [
+                    "hotel",
+                    "hostel",
+                    "inn",
+                    "motel",
+                    "suite",
+                    "resort",
+                    "guesthouse",
+                    "guest house",
+                    "b&b",
+                    "bed and breakfast",
+                    "aparthotel",
+                    "apart-hotel",
+                ]
+                if not any(k in name for k in hotel_keywords):
+                    return False
+
+            return True
+
+        # Food: restaurants, cafes, bars
+        if category == CategoryEnum.FOOD:
+            if not any(t in types for t in ["restaurant", "cafe", "bar"]):
+                return False
+
+            # If it's primarily lodging, drop it unless the name clearly indicates a restaurant
+            if "lodging" in types:
+                food_keywords = [
+                    "restaurant",
+                    "ristorante",
+                    "trattoria",
+                    "pizzeria",
+                    "cafe",
+                    "caffè",
+                    "bistro",
+                    "bar",
+                ]
+                if not any(k in name for k in food_keywords):
+                    return False
+
+            return True
+
+        # Activities: avoid pure hotels / food spots
+        if category == CategoryEnum.ACTIVITIES:
+            if any(t in types for t in ["lodging", "restaurant", "cafe", "bar"]):
+                return False
+            return True
+
+        # Sightseeing: filter out obvious hotels
+        if category == CategoryEnum.SIGHTSEEING:
+            if "lodging" in types:
+                return False
+            return True
+
+        # For other categories, keep defaults
+        return True
     
     def _get_place_types(self, category: Optional[CategoryEnum]) -> List[str]:
         """Map recommendation categories to Google Places types"""
@@ -204,7 +287,8 @@ class GooglePlacesDataSource(DataSource):
             CategoryEnum.FOOD: ['restaurant', 'cafe', 'bar'],
             CategoryEnum.SIGHTSEEING: ['tourist_attraction', 'museum', 'park', 'point_of_interest'],
             CategoryEnum.ACTIVITIES: ['amusement_park', 'aquarium', 'art_gallery', 'bowling_alley'],
-            CategoryEnum.EVENTS: ['event_venue', 'night_club']
+            CategoryEnum.EVENTS: ['event_venue', 'night_club'],
+            CategoryEnum.STAY: ['lodging'],
         }
         
         if category and category in type_mapping:
@@ -221,6 +305,10 @@ class GooglePlacesDataSource(DataSource):
         try:
             # Determine category from place type
             category = self._get_category_from_type(place_type)
+
+            # Drop obviously mis-classified places before making extra API calls
+            if not self._is_place_valid_for_category(place, category):
+                return None
             
             # Extract location
             location = place.get('geometry', {}).get('location', {})
@@ -231,6 +319,9 @@ class GooglePlacesDataSource(DataSource):
                 fields=['name', 'formatted_address', 'opening_hours', 'website', 'formatted_phone_number', 'rating', 'price_level', 'photo']
             )
             details = place_details.get('result', {})
+
+            # Prepare photo_url before Recommendation instantiation
+            photo_url = self._get_photo_url(place.get('photos', []))
             
             # Create recommendation
             recommendation = Recommendation(
@@ -249,7 +340,8 @@ class GooglePlacesDataSource(DataSource):
                 estimated_duration=self._estimate_duration(category),
                 website=details.get('website'),
                 phone=details.get('formatted_phone_number'),
-                image_url=self._get_photo_url(place.get('photos', [])),
+                image_url=photo_url,
+                photo_url=photo_url,
                 google_maps_url=f"https://maps.google.com/?q={place['place_id']}"
             )
             
@@ -274,13 +366,18 @@ class GooglePlacesDataSource(DataSource):
             'art_gallery': CategoryEnum.ACTIVITIES,
             'bowling_alley': CategoryEnum.ACTIVITIES,
             'event_venue': CategoryEnum.EVENTS,
-            'night_club': CategoryEnum.EVENTS
+            'night_club': CategoryEnum.EVENTS,
+            'lodging': CategoryEnum.STAY,
         }
         return type_to_category.get(place_type, CategoryEnum.SIGHTSEEING)
     
     def _extract_tags(self, place: dict, place_type: str) -> List[str]:
         """Extract tags from place data"""
         tags = [place_type]
+        
+        # Include all Google place types in tags so frontend can filter (e.g. 'restaurant', 'lodging')
+        google_types = place.get('types') or []
+        tags.extend(google_types)
         
         # Add rating-based tags
         rating = place.get('rating', 0)
@@ -317,7 +414,8 @@ class GooglePlacesDataSource(DataSource):
             CategoryEnum.FOOD: 90,
             CategoryEnum.SIGHTSEEING: 120,
             CategoryEnum.ACTIVITIES: 180,
-            CategoryEnum.EVENTS: 240
+            CategoryEnum.EVENTS: 240,
+            CategoryEnum.STAY: 480,
         }
         return duration_map.get(category, 120)
     
@@ -337,6 +435,8 @@ class GooglePlacesDataSource(DataSource):
     def is_available(self) -> bool:
         """Check if Google Places API is available"""
         return self.client is not None
+    
+    
 
 
 class DataSourceManager:
@@ -344,10 +444,23 @@ class DataSourceManager:
     Manages multiple data sources with fallback logic.
     Tries primary source first, falls back to secondary if unavailable.
     """
-    
+    def _build_cache_key(
+        self,
+        destination: str,
+        category: Optional[CategoryEnum],
+        limit: Optional[int],
+    ) -> str:
+        """Build Redis cache key for recommendations"""
+        cat = category.value if category else "all"
+        lim = limit if limit is not None else "none"
+        # Normalize destination to avoid key explosion
+        dest_norm = destination.strip().lower()
+        return f"recs:{dest_norm}:{cat}:{lim}"
+
     def __init__(self):
         self.sources: List[DataSource] = []
         self.using_fallback = False
+        self.cache_enabled = settings.redis_enabled
         
         # Initialize Google Places if API key available
         if settings.google_maps_api_key:
@@ -375,6 +488,26 @@ class DataSourceManager:
         Get recommendations from available data sources.
         Returns (recommendations, using_cached_data)
         """
+        cache_key = None
+        if self.cache_enabled:
+            cache_key = self._build_cache_key(destination, category, limit)
+            try:
+                cached = redis_client.get(cache_key)
+                if cached:
+                    try:
+                        cached_list = json.loads(cached)
+                        recommendations = [
+                            Recommendation(**item) for item in cached_list
+                        ]
+                        logger.info(
+                            f"Cache hit for recommendations (key={cache_key}, count={len(recommendations)})"
+                        )
+                        return recommendations, True
+                    except Exception as e:
+                        logger.error(f"Error parsing cached recommendations for {cache_key}: {e}")
+            except Exception as e:
+                logger.error(f"Error reading cache for {cache_key}: {e}")
+
         for i, source in enumerate(self.sources):
             try:
                 recommendations = source.get_recommendations(
@@ -382,7 +515,21 @@ class DataSourceManager:
                 )
                 
                 if recommendations:
-                    using_cached = i > 0  # True if not using primary source
+                    # Write-through cache: store fresh results
+                    if self.cache_enabled and cache_key:
+                        try:
+                            redis_client.setex(
+                                cache_key,
+                                settings.cache_ttl_recommendations,
+                                json.dumps([rec.dict() for rec in recommendations])
+                            )
+                            logger.info(
+                                f"Cached {len(recommendations)} recommendations for key={cache_key}"
+                            )
+                        except Exception as e:
+                            logger.error(f"Error caching recommendations for {cache_key}: {e}")
+                    
+                    using_cached = i > 0  # True if using fallback (non-primary) source
                     if using_cached:
                         logger.warning(
                             f"Using fallback data source (source {i+1}/{len(self.sources)})"

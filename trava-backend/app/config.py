@@ -2,6 +2,7 @@
 from pydantic import BaseModel
 from typing import List
 import os
+import redis
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -53,3 +54,9 @@ class Settings(BaseModel):
 
 # Global settings instance
 settings = Settings()
+
+# Redis client (shared across the app)
+redis_client = redis.Redis.from_url(
+    settings.redis_url,  # assumes you have redis_url in Settings
+    decode_responses=True
+)

@@ -36,6 +36,7 @@ export default function ActivitySwipeScreen({
           rating: rec.rating,
           price_range: rec.price_range,
           location: rec.location,
+          imageUrl: rec.photo_url || rec.image_url,
         }));
         
         setItems(transformedItems);
@@ -151,6 +152,26 @@ export default function ActivitySwipeScreen({
               marginBottom: "20px",
             }}
           >
+            {current.imageUrl && (
+              <div
+                style={{
+                  marginBottom: "12px",
+                  overflow: "hidden",
+                  borderRadius: "10px",
+                }}
+              >
+                <img
+                  src={current.imageUrl}
+                  alt={current.name}
+                  style={{
+                    width: "100%",
+                    maxHeight: "220px",
+                    objectFit: "cover",
+                    display: "block",
+                  }}
+                />
+              </div>
+            )}
             <h3 style={{ margin: "0 0 8px 0" }}>{current.name}</h3>
             <p
               style={{
