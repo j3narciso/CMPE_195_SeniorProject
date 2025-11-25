@@ -30,6 +30,7 @@ env.bak/
 venv.bak/
 
 # Environment Variables
+.env
 .env.local
 
 # IDE
